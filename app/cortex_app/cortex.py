@@ -28,7 +28,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-DEFAULT_MODEL = os.getenv("CORTEX_MODEL", "snowflake-arctic")
+DEFAULT_MODEL = os.getenv("CORTEX_MODEL", "claude-opus-4-5")
 DEFAULT_SYSTEM_PROMPT = os.getenv(
     "CORTEX_SYSTEM_PROMPT",
     "You are Cortex, a helpful AI assistant embedded in the DKK platform."
@@ -115,18 +115,27 @@ def chat(
 def list_models() -> list:
     """Return the list of models available in Snowflake Cortex."""
     return [
+        # Anthropic Claude (private preview, US — Feb 2026)
+        "claude-opus-4-6",
+        "claude-opus-4-5",
+        # Snowflake
         "snowflake-arctic",
+        # Mistral
         "mistral-large2",
         "mistral-large",
         "mistral-7b",
+        "mixtral-8x7b",
+        # Meta Llama
         "llama3.1-70b",
         "llama3.1-8b",
         "llama3-70b",
         "llama3-8b",
+        # Google
         "gemma-7b",
+        # Reka
         "reka-flash",
         "reka-core",
-        "mixtral-8x7b",
+        # AI21 Jamba
         "jamba-instruct",
         "jamba-1.5-mini",
         "jamba-1.5-large",

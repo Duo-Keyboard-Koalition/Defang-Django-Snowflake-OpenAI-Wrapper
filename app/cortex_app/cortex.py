@@ -174,19 +174,44 @@ def chat(
     if stream:
         return resp  # caller handles streaming
 
-    data = resp.json()
-    # Cortex REST returns OpenAI-shaped response already
-    choices = data.get("choices", [{}])
-    msg = choices[0].get("message", {}) if choices else {}
+    # Snowflake Cortex REST always returns SSE (data: {...} lines) even for non-streaming.
+    # Accumulate all chunks into a single response.
+    content_parts = []
+    last_chunk = {}
+    usage = {}
+    for line in resp.iter_lines():
+        if not line:
+            continue
+        text = line.decode("utf-8") if isinstance(line, bytes) else line
+        if text.startswith("data:"):
+            text = text[5:].strip()
+        if not text or text == "[DONE]":
+            continue
+        try:
+            chunk = json.loads(text)
+            last_chunk = chunk
+            choices = chunk.get("choices", [])
+            if choices:
+                delta = choices[0].get("delta", {})
+                content_parts.append(delta.get("content", "") or delta.get("text", ""))
+            if chunk.get("usage"):
+                usage = chunk["usage"]
+        except (json.JSONDecodeError, KeyError):
+            continue
+
+    content = "".join(content_parts)
     return {
-        "id": data.get("id", ""),
+        "id": last_chunk.get("id", ""),
         "object": "chat.completion",
-        "model": data.get("model", _model),
-        "choices": choices,
-        "usage": data.get("usage", {}),
-        # Convenience shortcut for non-OpenAI callers
-        "content": msg.get("content", ""),
-        "finish_reason": choices[0].get("finish_reason", "stop") if choices else "stop",
+        "model": last_chunk.get("model", _model),
+        "choices": [{
+            "index": 0,
+            "message": {"role": "assistant", "content": content},
+            "finish_reason": "stop",
+        }],
+        "usage": usage,
+        "content": content,
+        "finish_reason": "stop",
     }
 
 

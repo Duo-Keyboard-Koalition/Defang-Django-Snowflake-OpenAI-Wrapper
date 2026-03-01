@@ -28,12 +28,18 @@ CORTEX_API_KEY = os.environ.get("CORTEX_API_KEY", "cortex")
 DEFAULT_MODEL = os.environ.get("CORTEX_DEFAULT_MODEL", "mistral-large2")
 
 SUPPORTED_MODELS = [
+    "claude-opus-4-5",   # Anthropic on Snowflake Cortex (private preview, US)
+    "claude-opus-4-6",   # Latest Claude on Cortex
+    "snowflake-arctic",
     "mistral-large2",
     "llama3.1-70b",
     "llama3.1-8b",
-    "snowflake-arctic",
+    "llama3-70b",
+    "gemma-7b",
     "reka-flash",
     "reka-core",
+    "mixtral-8x7b",
+    "jamba-1.5-large",
 ]
 
 

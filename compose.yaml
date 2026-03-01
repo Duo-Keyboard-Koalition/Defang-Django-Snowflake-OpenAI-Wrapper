@@ -5,9 +5,7 @@ services:
       context: ./app
       dockerfile: Dockerfile
     ports:
-      - mode: ingress
-        target: 8000
-        # published: 8000 # uncomment for local dev
+      - "8000:8000"
     environment:
       - DEBUG=${DEBUG:-False}
       - SECRET_KEY=${SECRET_KEY}

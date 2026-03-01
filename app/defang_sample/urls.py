@@ -23,4 +23,5 @@ urlpatterns = [
     path('todos/', include('example_app.urls', namespace='example_app')),
     path('nationstates/', include('nationstates_app.urls')),
     path('', RedirectView.as_view(url='/nationstates/')),
+    path('chat/', include('chat_app.urls')),
 ]

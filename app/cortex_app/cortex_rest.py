@@ -83,6 +83,82 @@ def get_token() -> str:
     return token
 
 
+def _openai_tools_to_snowflake(tools: list) -> list:
+    """
+    Translate OpenAI tool format → Snowflake Cortex toolSpec format.
+
+    OpenAI:   {"type": "function", "function": {"name": ..., "description": ..., "parameters": ...}}
+    Snowflake: {"tool_type": "function", "toolSpec": {"name": ..., "description": ..., "parameters": ...}}
+    """
+    result = []
+    for t in tools:
+        if t.get("type") == "function" and "function" in t:
+            fn = t["function"]
+            result.append({
+                "tool_type": "function",
+                "toolSpec": {
+                    "name": fn.get("name", ""),
+                    "description": fn.get("description", ""),
+                    "parameters": fn.get("parameters", {}),
+                },
+            })
+        else:
+            result.append(t)  # pass through unknown formats as-is
+    return result
+
+
+def _snowflake_response_to_openai(data: dict, model: str) -> dict:
+    """
+    Normalize Snowflake Cortex response to OpenAI format.
+    Snowflake tool calls use 'toolUse' instead of 'tool_calls'.
+    """
+    choices = data.get("choices", [])
+    normalized_choices = []
+    for i, choice in enumerate(choices):
+        msg = choice.get("message", {})
+        # Translate tool_use → OpenAI tool_calls format
+        if "toolUse" in msg or "tool_use" in msg:
+            tool_use = msg.get("toolUse") or msg.get("tool_use", {})
+            openai_msg = {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [{
+                    "id": tool_use.get("toolUseId", f"call_{i}"),
+                    "type": "function",
+                    "function": {
+                        "name": tool_use.get("name", ""),
+                        "arguments": json.dumps(tool_use.get("input", {})),
+                    },
+                }],
+            }
+            normalized_choices.append({
+                "index": i,
+                "message": openai_msg,
+                "finish_reason": "tool_calls",
+            })
+        else:
+            # Regular message — normalize content field
+            content = msg.get("content") or msg.get("messages", "")
+            normalized_choices.append({
+                "index": i,
+                "message": {"role": "assistant", "content": content},
+                "finish_reason": choice.get("finish_reason", "stop"),
+            })
+
+    return {
+        "id": data.get("id", f"chatcmpl-{uuid.uuid4().hex[:12]}"),
+        "object": "chat.completion",
+        "created": data.get("created", int(time.time())),
+        "model": model,
+        "choices": normalized_choices,
+        "usage": data.get("usage", {}),
+    }
+
+
+import uuid
+import time
+
+
 def complete(
     messages: list,
     model: str = None,
@@ -94,8 +170,9 @@ def complete(
     """
     Call Snowflake Cortex REST API with full OpenAI-compatible request.
     Supports tool calling, streaming, all models.
+    Translates OpenAI tool format ↔ Snowflake toolSpec format automatically.
 
-    Returns the raw OpenAI-format response dict.
+    Returns an OpenAI-format response dict.
     """
     _model = model or DEFAULT_MODEL
     token = get_token()
@@ -105,13 +182,12 @@ def complete(
         "messages": messages,
     }
     if tools:
-        payload["tools"] = tools
+        payload["tools"] = _openai_tools_to_snowflake(tools)
     if tool_choice is not None:
         payload["tool_choice"] = tool_choice
     if stream:
         payload["stream"] = True
 
-    # Pass through any extra OpenAI params (temperature, max_tokens, etc.)
     for k in ("temperature", "max_tokens", "top_p", "stop"):
         if k in kwargs:
             payload[k] = kwargs[k]
@@ -136,4 +212,5 @@ def complete(
 
     if stream:
         return resp  # caller handles streaming
-    return resp.json()
+
+    return _snowflake_response_to_openai(resp.json(), _model)

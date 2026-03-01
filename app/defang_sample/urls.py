@@ -21,7 +21,6 @@ from django.views.generic import RedirectView
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('todos/', include('example_app.urls', namespace='example_app')),
-    path('nationstates/', include('nationstates_app.urls')),
     path('cortex/', include('cortex_app.urls', namespace='cortex_app')),
     path('snowflake/', include('snowflake_app.urls', namespace='snowflake_app')),
     path('chat-ui/', include('frontend_app.urls', namespace='frontend_app')),

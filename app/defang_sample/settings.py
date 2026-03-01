@@ -42,6 +42,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'example_app',
     'nationstates_app',
+    'snowflake_app',
 ]
 
 MIDDLEWARE = [

@@ -22,5 +22,6 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('todos/', include('example_app.urls', namespace='example_app')),
     path('nationstates/', include('nationstates_app.urls')),
+    path('snowflake/', include('snowflake_app.urls', namespace='snowflake_app')),
     path('', RedirectView.as_view(url='/nationstates/')),
 ]

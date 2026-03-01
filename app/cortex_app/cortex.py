@@ -1,21 +1,52 @@
 """
-Cortex - OpenAI wrapper/gateway for the Defang Django stack.
+Cortex - Snowflake Cortex wrapper for the Defang Django stack.
 
-Provides a unified interface to OpenAI completions that can be
-called by other apps within this Django project or via the REST API.
+Uses Snowflake CORTEX.COMPLETE() to run models natively — no OpenAI dependency.
+
+Supported models (Snowflake Cortex):
+  - snowflake-arctic          (Snowflake's own model)
+  - mistral-large / mistral-7b
+  - llama3.1-70b / llama3.1-8b / llama3-8b / llama3-70b
+  - gemma-7b
+  - reka-flash / reka-core
+  - mixtral-8x7b
+  - jamba-instruct / jamba-1.5-mini / jamba-1.5-large
+
+Env vars:
+  SNOWFLAKE_ACCOUNT    e.g. ymuajwd-ym41388
+  SNOWFLAKE_USER       e.g. d273liu
+  SNOWFLAKE_PASSWORD   (or use SNOWFLAKE_PRIVATE_KEY_PATH)
+  SNOWFLAKE_WAREHOUSE  e.g. COMPUTE_WH
+  SNOWFLAKE_DATABASE   e.g. AGENT_MEMORY
+  SNOWFLAKE_SCHEMA     e.g. MAIN
+  CORTEX_MODEL         default model name (default: snowflake-arctic)
 """
 
 import os
+import json
 from dotenv import load_dotenv
 
 load_dotenv()
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-DEFAULT_MODEL = os.getenv("CORTEX_MODEL", "gpt-4o")
+DEFAULT_MODEL = os.getenv("CORTEX_MODEL", "snowflake-arctic")
 DEFAULT_SYSTEM_PROMPT = os.getenv(
     "CORTEX_SYSTEM_PROMPT",
     "You are Cortex, a helpful AI assistant embedded in the DKK platform."
 )
+
+
+def _get_connection():
+    """Return a Snowflake connector connection."""
+    import snowflake.connector
+    return snowflake.connector.connect(
+        account=os.environ["SNOWFLAKE_ACCOUNT"],
+        user=os.environ["SNOWFLAKE_USER"],
+        password=os.environ.get("SNOWFLAKE_PASSWORD", ""),
+        warehouse=os.environ.get("SNOWFLAKE_WAREHOUSE", "COMPUTE_WH"),
+        database=os.environ.get("SNOWFLAKE_DATABASE", "AGENT_MEMORY"),
+        schema=os.environ.get("SNOWFLAKE_SCHEMA", "MAIN"),
+        session_parameters={"QUERY_TAG": "cortex_app"},
+    )
 
 
 def chat(
@@ -26,58 +57,77 @@ def chat(
     **kwargs
 ) -> dict:
     """
-    Send a message to OpenAI and return the response.
+    Run a prompt through Snowflake CORTEX.COMPLETE().
 
     Args:
         user_message: The user's message.
-        system_prompt: Optional override for the system prompt.
-        model: Optional model override (default: CORTEX_MODEL env var or gpt-4o).
+        system_prompt: Optional system prompt override.
+        model: Snowflake Cortex model name (default: CORTEX_MODEL env / snowflake-arctic).
         history: Optional list of prior messages [{"role": ..., "content": ...}].
-        **kwargs: Extra params forwarded to openai.ChatCompletion.create().
 
     Returns:
-        dict with keys: content, model, usage, finish_reason
+        dict with keys: content, model, usage (approximate), finish_reason
     """
-    try:
-        from openai import OpenAI
-        client = OpenAI(api_key=OPENAI_API_KEY)
-    except ImportError:
-        # Fallback for openai<1.0
-        import openai as _openai
-        _openai.api_key = OPENAI_API_KEY
-        client = None
+    _model = model or DEFAULT_MODEL
+    _system = system_prompt or DEFAULT_SYSTEM_PROMPT
 
-    messages = [
-        {"role": "system", "content": system_prompt or DEFAULT_SYSTEM_PROMPT}
-    ]
+    # Build message array for CORTEX.COMPLETE multi-turn format
+    messages = [{"role": "system", "content": _system}]
     if history:
         messages.extend(history)
     messages.append({"role": "user", "content": user_message})
 
-    _model = model or DEFAULT_MODEL
+    # Serialize to JSON string for the SQL call
+    messages_json = json.dumps(messages).replace("'", "\\'")
 
-    if client:
-        response = client.chat.completions.create(
-            model=_model,
-            messages=messages,
-            **kwargs
-        )
+    sql = f"""
+        SELECT SNOWFLAKE.CORTEX.COMPLETE(
+            '{_model}',
+            PARSE_JSON($${json.dumps(messages)}$$)
+        ) AS response
+    """
+
+    conn = _get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute(sql)
+        row = cur.fetchone()
+        if not row or not row[0]:
+            raise ValueError("Empty response from Snowflake Cortex")
+
+        result = json.loads(row[0]) if isinstance(row[0], str) else row[0]
+
+        # Snowflake Cortex response shape
+        choices = result.get("choices", [{}])
+        content = choices[0].get("messages", "") if choices else ""
+        usage = result.get("usage", {})
+
         return {
-            "content": response.choices[0].message.content,
-            "model": response.model,
-            "usage": response.usage.model_dump() if hasattr(response.usage, "model_dump") else dict(response.usage),
-            "finish_reason": response.choices[0].finish_reason,
+            "content": content,
+            "model": _model,
+            "usage": usage,
+            "finish_reason": "stop",
         }
-    else:
-        import openai as _openai
-        response = _openai.ChatCompletion.create(
-            model=_model,
-            messages=messages,
-            **kwargs
-        )
-        return {
-            "content": response["choices"][0]["message"]["content"],
-            "model": response["model"],
-            "usage": dict(response["usage"]),
-            "finish_reason": response["choices"][0]["finish_reason"],
-        }
+    finally:
+        conn.close()
+
+
+def list_models() -> list:
+    """Return the list of models available in Snowflake Cortex."""
+    return [
+        "snowflake-arctic",
+        "mistral-large2",
+        "mistral-large",
+        "mistral-7b",
+        "llama3.1-70b",
+        "llama3.1-8b",
+        "llama3-70b",
+        "llama3-8b",
+        "gemma-7b",
+        "reka-flash",
+        "reka-core",
+        "mixtral-8x7b",
+        "jamba-instruct",
+        "jamba-1.5-mini",
+        "jamba-1.5-large",
+    ]

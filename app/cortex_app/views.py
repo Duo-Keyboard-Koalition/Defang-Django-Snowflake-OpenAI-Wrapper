@@ -1,8 +1,11 @@
 """
-Cortex REST API views — OpenAI wrapper endpoints.
+Cortex REST API views — Snowflake Cortex wrapper endpoints.
+
+No OpenAI. Models run natively inside Snowflake Cortex.
 
 Endpoints:
   POST /cortex/chat/        — single-turn or multi-turn chat
+  GET  /cortex/models/      — list available Cortex models
   GET  /cortex/health/      — liveness check
 """
 
@@ -11,20 +14,20 @@ from django.http import JsonResponse
 from django.views.decorators.http import require_http_methods
 from django.views.decorators.csrf import csrf_exempt
 
-from .cortex import chat, DEFAULT_MODEL
+from .cortex import chat, list_models, DEFAULT_MODEL
 
 
 @csrf_exempt
 @require_http_methods(["POST"])
 def cortex_chat(request):
     """
-    OpenAI chat completion endpoint.
+    Snowflake Cortex chat completion endpoint.
 
     Request body (JSON):
       {
         "message": "Your question here",           // required
         "system_prompt": "Optional override",      // optional
-        "model": "gpt-4o",                         // optional
+        "model": "snowflake-arctic",               // optional
         "history": [                               // optional
           {"role": "user",      "content": "..."},
           {"role": "assistant", "content": "..."}
@@ -34,7 +37,7 @@ def cortex_chat(request):
     Response:
       {
         "content": "...",
-        "model": "gpt-4o",
+        "model": "snowflake-arctic",
         "usage": {...},
         "finish_reason": "stop"
       }
@@ -52,7 +55,6 @@ def cortex_chat(request):
     model = body.get("model")
     history = body.get("history", [])
 
-    # Basic history validation
     if not isinstance(history, list):
         return JsonResponse({"error": "'history' must be a list"}, status=400)
 
@@ -69,10 +71,21 @@ def cortex_chat(request):
 
 
 @require_http_methods(["GET"])
+def cortex_models(request):
+    """List available Snowflake Cortex models."""
+    models = list_models()
+    return JsonResponse({
+        "models": [{"id": m, "object": "model"} for m in models],
+        "object": "list",
+    })
+
+
+@require_http_methods(["GET"])
 def cortex_health(request):
     """Liveness / readiness check."""
     return JsonResponse({
         "status": "ok",
         "service": "cortex",
+        "backend": "snowflake-cortex",
         "default_model": DEFAULT_MODEL,
     })

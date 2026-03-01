@@ -45,6 +45,7 @@ INSTALLED_APPS = [
     'nationstates_app',
     'chat_app',
     'cortex_app',
+    'snowflake_app',
 ]
 
 MIDDLEWARE = [

@@ -80,10 +80,12 @@ def chat(
     conn = _get_connection()
     try:
         cur = conn.cursor()
-        # Use parameterized query to avoid quoting issues
+        # CORTEX.COMPLETE requires messages as a typed ARRAY, not VARIANT
+        # We use TO_ARRAY(PARSE_JSON(...)) to ensure correct typing
+        messages_json = json.dumps(messages)
         cur.execute(
-            "SELECT SNOWFLAKE.CORTEX.COMPLETE(%s, PARSE_JSON(%s)) AS response",
-            (_model, json.dumps(messages))
+            f"SELECT SNOWFLAKE.CORTEX.COMPLETE('{_model}', TO_ARRAY(PARSE_JSON(%s))) AS response",
+            (messages_json,)
         )
         row = cur.fetchone()
         if not row or not row[0]:

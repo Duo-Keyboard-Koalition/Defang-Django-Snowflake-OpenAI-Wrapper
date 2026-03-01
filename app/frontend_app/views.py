@@ -29,27 +29,25 @@ def chat_ui(request):
 @require_http_methods(["POST"])
 def chat_proxy(request):
     """
-    Thin proxy: forwards chat requests to /cortex/chat/ internally.
-    Keeps the frontend decoupled from direct Snowflake calls.
+    Calls Snowflake Cortex directly (no HTTP round-trip).
     """
-    import urllib.request
     try:
         body = json.loads(request.body)
     except (json.JSONDecodeError, ValueError):
         return JsonResponse({"error": "Invalid JSON"}, status=400)
 
-    # Forward to internal cortex endpoint
-    cortex_url = request.build_absolute_uri('/cortex/chat/')
-    req = urllib.request.Request(
-        cortex_url,
-        data=json.dumps(body).encode(),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
+    message = body.get("message", "").strip()
+    if not message:
+        return JsonResponse({"error": "'message' is required"}, status=400)
+
+    model = body.get("model")
+    history = body.get("history", [])
+    system_prompt = body.get("system_prompt")
+
     try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            data = json.loads(resp.read())
-            return JsonResponse(data)
+        from cortex_app.cortex import chat
+        result = chat(message, system_prompt=system_prompt, model=model, history=history)
+        return JsonResponse(result)
     except Exception as exc:
         return JsonResponse({"error": str(exc)}, status=500)
 
